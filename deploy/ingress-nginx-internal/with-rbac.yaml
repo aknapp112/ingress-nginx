@@ -1,0 +1,73 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: nginx-ingress-controller-internal
+  namespace: ingress-nginx-internal 
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ingress-nginx-internal
+  template:
+    metadata:
+      labels:
+        app: ingress-nginx-internal
+      annotations:
+        prometheus.io/port: '10254'
+        prometheus.io/scrape: 'true'
+    spec:
+      serviceAccountName: nginx-ingress-serviceaccount-internal
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - sysctl -w net.core.somaxconn=32768; sysctl -w net.ipv4.ip_local_port_range="1024 65535"
+        image: alpine:3.6
+        imagePullPolicy: IfNotPresent
+        name: sysctl
+        securityContext:
+          privileged: true
+      containers:
+        - name: nginx-ingress-controller-internal
+          image: quay.io/kubernetes-ingress-controller/nginx-ingress-controller:0.10.0
+          args:
+            - /nginx-ingress-controller
+            - --default-backend-service=$(POD_NAMESPACE)/default-http-backend-internal
+            - --configmap=$(POD_NAMESPACE)/nginx-configuration-internal
+            - --tcp-services-configmap=$(POD_NAMESPACE)/tcp-services-internal
+            - --udp-services-configmap=$(POD_NAMESPACE)/udp-services-internal
+            - --annotations-prefix=nginx.ingress.kubernetes.io
+            - --ingress-class=nginx-internal
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+          - name: http
+            containerPort: 80
+          - name: https
+            containerPort: 443
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /healthz
+              port: 10254
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /healthz
+              port: 10254
+              scheme: HTTP
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
